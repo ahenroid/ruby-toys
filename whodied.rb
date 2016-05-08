@@ -1,21 +1,18 @@
-#!ruby
+#!/usr/bin/env ruby
 #
 # whodied.rb: Scrape notable death entries from Wikipedia
 #
-# Usage: whodied.rb [MONTH/YEAR ...] [URI ...] [FILE ...]
+# Usage: whodied.rb [MONTH/YEAR ...]
 #
 # Author::    Andrew Henroid (mailto:ahenroid@gmail.com)
 # Copyright:: Copyright (c) 2016 Andrew Henroid
 # License::   MIT License
 #
 
+require "open-uri"
+require "nokogiri"
+
 module WhoDied #:nodoc
-
-  require "net/https"
-  require "uri"
-  require "Date"
-  require "nokogiri"
-
   # Entry for a single death
   class Dead
     # Full name of the deceased (String)
@@ -53,17 +50,15 @@ module WhoDied #:nodoc
 
   # Parse HTML entries into an Array of Dead objects
   # == Parameters
-  # doc:: Nokogiri::HTML object
-  # uri:: Source URI (to determine year)
+  # html:: Nokogiri::HTML object
+  # year:: Year
   # == Returns
   # Array of Dead objects
-  def Dead.parse(doc, uri)
+  def Dead::parse(html, year)
     list = []
     date = nil
-    year = uri.match(/(\d{4})\.\w+$/)
-    year = year.nil? ? 2016:year[0].to_i
     
-    doc.css("a[title]").each {|node|
+    html.css("a[title]").each {|node|
       parent = node.parent
       
       case parent.name
@@ -126,7 +121,7 @@ module WhoDied #:nodoc
   # list:: Array of Dead objects
   # == Returns
   # Array of Dead objects
-  def Dead.merge(list)
+  def Dead::merge(list)
     # build hash list
     hash = {}
     list.each {|entry|
@@ -139,20 +134,20 @@ module WhoDied #:nodoc
     return keys.map {|key| hash[key]}
   end
   
-  # Load data from local files or Wikipedia URLs
+  # Issue queries to Wikipedia
   # == Parameters
-  # uris:: URI or path strings
+  # dates:: Date selector strings (MONTH/YEAR ...)
   # == Returns
   # Array of Dead objects
-  def Dead.load(uris)
+  def self.query(*dates)
     list = []
-    uris.each {|uri|
-      # convert string selector to URI
-      if uri.empty?
-        uri = "https://en.wikipedia.org/wiki/"
-        uri += Date.today.strftime("Deaths_in_%Y")
-      elsif uri =~ /^(\d+)(\/(\d*))?$/
-        (month, year) = uri.split(/\//)
+    dates = [nil] if dates.empty?
+    dates.each {|date|
+      # convert date selector to Wikipedia URI
+      uri = "https://en.wikipedia.org/wiki/"
+      year = nil
+      if date =~ /^(\d+)(\/(\d*))?$/
+        (month, year) = date.split(/\//)
         if year.nil?
           year = month.to_i
           month = 1
@@ -161,29 +156,19 @@ module WhoDied #:nodoc
           month = month.to_i
         end
         year = (year + 2000) if year < 100
-        uri = "https://en.wikipedia.org/wiki/"
         uri += Date.new(year, month).strftime("Deaths_in_%B_%Y")
+      else
+        year = Date.today.year
+        uri += "Deaths_in_#{year}"
       end
 
       # load HTML
-      obj = URI.parse(uri)
-      if obj.scheme.eql?("https") or obj.scheme.eql?("http")
-        http = Net::HTTP.new(obj.host, obj.port)
-        if obj.scheme.eql?("https")
-          http.use_ssl = true
-          http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-        end
-        req = Net::HTTP::Get.new(obj.request_uri)
-        resp = http.request(req)
-        doc = Nokogiri::HTML(resp.body)
-      else
-        doc = Nokogiri::HTML(uri)
-      end
-
-      # parse HTML and display Dead objects
-      Dead.parse(doc, uri).each {|x| list.push(x)}
+      html = Nokogiri::HTML(open(uri).read)
+      
+      # parse HTML and return Dead objects
+      Dead.parse(html, year).each {|entry| list.push(entry)}
     }
-    Dead.merge(list)
+    Dead::merge(list)
   end
 end
 
@@ -210,11 +195,11 @@ end
 
 # display usage message
 if usage
-  puts "Usage: #{ME} [MONTH/YEAR ...] [URI ...] [FILE ...]"
+  puts "Usage: #{ME} [MONTH/YEAR ...]"
   exit 1
 end
 
-puts WhoDied::Dead.load(ARGV.empty? ? [""]:ARGV)
+puts WhoDied::query(*ARGV)
 
 exit 0
 
